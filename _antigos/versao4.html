@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalha Naval</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            margin: 20px auto;
+        }
+        td {
+            width: 40px;
+            height: 40px;
+            border: 1px solid black;
+            text-align: center;
+            cursor: pointer;
+            background-size: cover;
+        }
+        .hit {
+            background-color: red;
+        }
+        .miss {
+            background-color: blue;
+        }
+        .special {
+            background-image: url('images/bonus.png'); /* Substitua com o caminho da sua imagem */
+            background-color: transparent;
+        }
+        .disabled {
+            pointer-events: none;
+        }
+
+        /* Estilos para a imagem de vitória */
+        #winImage {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 300px;
+            height: 300px;
+            transform: translate(-50%, -50%); /* Centraliza a imagem */
+            z-index: 1000; /* Garante que a imagem fique acima do tabuleiro */
+            display: none; /* Inicialmente escondido */
+            pointer-events: none; /* Garante que a imagem não interfira nas ações do usuário */
+        }
+    </style>
+</head>
+<body>
+    <h3>Batalha Naval Huya</h3>
+
+    <!-- Imagem de Vitória (inicialmente oculta) -->
+    <img id="winImage" src="images/victory.png" alt="Vitória!" />
+
+    <!-- Configurações do Jogo -->
+    <div hidden>
+        <label for="gameSettings">Configurações do Jogo:</label>
+        <ul id="gameSettings">
+            <li><strong>Jogadas Iniciais:</strong> <span id="initialMoves"></span></li>
+            <li><strong>Tamanho do Tabuleiro:</strong> <span id="boardSize"></span></li>
+            <li><strong>Embarcações:</strong> <span id="shipsConfig"></span></li>
+            <li><strong>Quadrados Especiais:</strong> <span id="specialSquaresCount"></span></li>
+            <li><strong>Bônus por Quadrado Especial:</strong> <span id="bonusRounds"></span></li>
+        </ul>
+    </div>
+
+    <table id="gameBoard"></table>
+
+    <h3 id="gameStatus"></h3>
+
+    <script>
+        // Configurações do Jogo
+        const config = {
+            initialMoves: 15,   // Jogadas iniciais
+            boardSize: { x: 6, y: 6 }, // Tamanho do tabuleiro (6x6, por exemplo)
+            shipSizes: [5, 4, 3, 3, 2],  // Configuração das embarcações (tamanhos)
+            specialSquares: 2,  // Quantidade de quadrados especiais
+            bonusRounds: 5,      // Bônus de rodadas extras por quadrado especial
+            showVictoryScreen: false  // Controla a exibição da tela de vitória (true ou false)
+        };
+
+        let gameBoard = [];
+        let shipPositions = [];
+        let hits = 0;
+        let totalShipParts = 0;
+        let moves = 0;
+        let gameOver = false;
+        let specialMoves = 0;  // Rodadas extras obtidas pelos quadrados especiais
+        const specialSquares = [];
+
+        // Inicializa o tabuleiro e as embarcações
+        function initializeBoard() {
+            // Configurações do Jogo no topo
+            document.getElementById('initialMoves').innerText = config.initialMoves;
+            document.getElementById('boardSize').innerText = `${config.boardSize.x} x ${config.boardSize.y}`;
+            document.getElementById('shipsConfig').innerText = config.shipSizes.join(', ');
+            document.getElementById('specialSquaresCount').innerText = config.specialSquares;
+            document.getElementById('bonusRounds').innerText = config.bonusRounds;
+
+            // Inicializando o tabuleiro vazio
+            for (let i = 0; i < config.boardSize.y; i++) {
+                gameBoard[i] = [];
+                for (let j = 0; j < config.boardSize.x; j++) {
+                    gameBoard[i][j] = null;
+                }
+            }
+
+            // Coloca as embarcações no tabuleiro
+            placeShips();
+
+            // Adiciona os quadrados especiais
+            addSpecialSquares();
+
+            // Cria a visualização do tabuleiro
+            createBoard();
+        }
+
+        // Coloca as embarcações no tabuleiro aleatoriamente
+        function placeShips() {
+            config.shipSizes.forEach(size => {
+                let placed = false;
+                while (!placed) {
+                    const horizontal = Math.random() > 0.5;
+                    const row = Math.floor(Math.random() * config.boardSize.y);
+                    const col = Math.floor(Math.random() * config.boardSize.x);
+                    if (canPlaceShip(row, col, size, horizontal)) {
+                        placeShip(row, col, size, horizontal);
+                        placed = true;
+                    }
+                }
+            });
+        }
+
+        // Verifica se é possível colocar a embarcação na posição escolhida
+        function canPlaceShip(row, col, size, horizontal) {
+            if (horizontal) {
+                if (col + size > config.boardSize.x) return false;
+                for (let i = 0; i < size; i++) {
+                    if (gameBoard[row][col + i] !== null) return false;
+                }
+            } else {
+                if (row + size > config.boardSize.y) return false;
+                for (let i = 0; i < size; i++) {
+                    if (gameBoard[row + i][col] !== null) return false;
+                }
+            }
+            return true;
+        }
+
+        // Coloca a embarcação no tabuleiro
+        function placeShip(row, col, size, horizontal) {
+            const ship = { row, col, size, horizontal, parts: [] };
+            for (let i = 0; i < size; i++) {
+                if (horizontal) {
+                    gameBoard[row][col + i] = 'ship';
+                    ship.parts.push({ row, col: col + i });
+                    totalShipParts++;
+                } else {
+                    gameBoard[row + i][col] = 'ship';
+                    ship.parts.push({ row: row + i, col });
+                    totalShipParts++;
+                }
+            }
+            shipPositions.push(ship);
+        }
+
+        // Adiciona os quadrados especiais no tabuleiro
+        function addSpecialSquares() {
+            let placed = 0;
+            while (placed < config.specialSquares) {
+                const row = Math.floor(Math.random() * config.boardSize.y);
+                const col = Math.floor(Math.random() * config.boardSize.x);
+
+                // Verifica se o quadrado especial está livre
+                if (gameBoard[row][col] === null) {
+                    specialSquares.push({ row, col });
+                    gameBoard[row][col] = 'special';
+                    placed++;
+                }
+            }
+        }
+
+        // Cria a tabela de visualização do tabuleiro
+        function createBoard() {
+            const table = document.getElementById('gameBoard');
+            table.innerHTML = '';
+            for (let i = 0; i < config.boardSize.y; i++) {
+                let row = document.createElement('tr');
+                for (let j = 0; j < config.boardSize.x; j++) {
+                    let cell = document.createElement('td');
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    cell.textContent = `${String.fromCharCode(65 + i)}${j + 1}`; // Mostra a coordenada como A1, B2, etc.
+                    cell.onclick = () => handleUserMove(i, j);
+                    row.appendChild(cell);
+                }
+                table.appendChild(row);
+            }
+        }
+
+        // Lida com o movimento do jogador ao clicar no tabuleiro
+        function handleUserMove(row, col) {
+            if (gameOver || gameBoard[row][col] === 'hit' || gameBoard[row][col] === 'miss') {
+                alert("Essa posição já foi atacada!");
+                return;
+            }
+
+            // Apenas reduz a quantidade de jogadas quando errar
+            if (gameBoard[row][col] !== 'ship' && gameBoard[row][col] !== 'special') {
+                moves++;
+            }
+
+            if (gameBoard[row][col] === 'ship') {
+                gameBoard[row][col] = 'hit';
+                hits++;
+                document.getElementById('gameStatus').innerText = `Você acertou! Jogadas restantes: ${config.initialMoves + specialMoves - moves}`;
+            } else if (gameBoard[row][col] === 'special') {
+                specialMoves += config.bonusRounds; // Adiciona o número de rodadas extras configurado
+                gameBoard[row][col] = 'miss'; // Marca como errada
+                document.getElementById('gameStatus').innerText = `Você encontrou o Golfinho (ou amigo dele)! Ele vai ter ajudar porque quer que a Huyatona continue! Jogadas extras! Jogadas restantes: ${config.initialMoves + specialMoves - moves}`;
+                // Muda a cor do quadrado especial para a imagem
+                const cell = document.querySelector(`[data-row='${row}'][data-col='${col}']`);
+                cell.classList.add('special');
+            } else {
+                gameBoard[row][col] = 'miss';
+                document.getElementById('gameStatus').innerText = `Você errou! Jogadas restantes: ${config.initialMoves + specialMoves - moves}`;
+            }
+
+            updateBoard();
+
+            // Verifica se todas as partes das embarcações foram afundadas
+            shipPositions.forEach(ship => {
+                if (ship.parts.every(part => gameBoard[part.row][part.col] === 'hit')) {
+                    document.getElementById('gameStatus').innerText += `\nVocê afundou uma embarcação de ${ship.size} quadrados!`;
+                }
+            });
+
+            // Verifica se o jogador venceu
+            if (hits === totalShipParts) {
+                document.getElementById('gameStatus').innerText += "\nVocê venceu! Todas as embarcações foram afundadas! Golfinho ficou feliz! Apoie a Huyatona!";
+                gameOver = true;
+
+                // Verifica a configuração para mostrar a tela de vitória
+                if (config.showVictoryScreen) {
+                    document.getElementById('winImage').style.display = 'block'; // Exibe a imagem de vitória
+                }
+
+                // Oculta o tabuleiro
+                document.getElementById('gameBoard').style.display = 'none';
+            } else if (moves >= config.initialMoves + specialMoves) {
+                document.getElementById('gameStatus').innerText += " Fim de jogo, você perdeu! Golfinho ficou triste! Apoie a Huyatona";
+                gameOver = true;
+            }
+        }
+
+        // Atualiza o tabuleiro com os status das células
+        function updateBoard() {
+            const table = document.getElementById('gameBoard');
+            for (let i = 0; i < config.boardSize.y; i++) {
+                for (let j = 0; j < config.boardSize.x; j++) {
+                    const cell = table.rows[i].cells[j];
+                    if (gameBoard[i][j] === 'hit') {
+                        cell.classList.add('hit');
+                        cell.textContent = ''; // Remove a coordenada após o ataque
+                    } else if (gameBoard[i][j] === 'miss') {
+                        cell.classList.add('miss');
+                        cell.textContent = ''; // Remove a coordenada após o ataque
+                    }
+                }
+            }
+        }
+
+        // Inicializa o jogo
+        initializeBoard();
+    </script>
+</body>
+</html>
